@@ -4,7 +4,7 @@
 
 ## 模块与业务流程
 数据接入（JSON/CSV、字段验证、批次指纹）→ 参数化分析（异步 Python worker）→ 结果复核（指标、图形、明细、解释、批准）→ 定时分发（本地收件箱、CSV/JSON、SHA256）；另有业务总览和审计轨迹。
-三个贯穿全栈的实体：Dataset 数据批次、Job 分析任务、Report 分发计划；辅助 User、Audit、Delivery。
+三个贯穿全栈的实体：Dataset 数据批次、Job 分析任务、Report 分发计划；辅助 User、Audit、Delivery。另有双时间复盘实体 FlowEvent 客流收讫事件与 Review 复盘：按营业日与实际收讫时间重放“当时所知/今天所知”的客流，样本冻结、批次可恢复、重试不换样。
 
 ## 快速启动
 ```bash
@@ -38,6 +38,7 @@ COMPOSE_PROJECT_NAME=guide-chi；FRONTEND_PORT=18204；BACKEND_PORT=19204；DB_P
 
 ## 数据与验收
 所有数据为固定随机种子生成的模拟业务数据，不能作为实际生产决策证据。项目独立算法、输入边界及业务局限详见 BUSINESS.md。测试与截图统一存放 ../../test-artifacts/gb-1005/，源码不含日志/截图/测试报告。
+双时间复盘的算法与集成测试随功能置于 `backend/tests/`：`python -m tests.test_replay`（仅标准库，覆盖双时间口径、补报/更正/撤销、批次恢复与样本冻结）；`python -m tests.test_integration_review`（FastAPI + SQLite，覆盖路由、鉴权、worker 批处理与重试，需安装 requirements 依赖）。
 清理本项目演示数据：`docker compose down -v --remove-orphans`（会删除本项目命名卷）。
 
 ## License

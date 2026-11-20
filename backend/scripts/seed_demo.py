@@ -2,9 +2,11 @@ import time, json
 from sqlalchemy import select, func
 from src.config.database import Session
 from migrations.initial import migrate
-from src.models import User, Dataset, Job, Report, Delivery, Audit
+from src.models import User, Dataset, Job, Report, Delivery, Audit, FlowEvent, Review
 from src.services.business import metadata, seed_records, analyze
 from src.services.reports import deliver
+from src.services import reviews
+from src.services.flow_seed import seed_flow_events, BUSINESS_DAY, THEN, NOW
 from src.utils.security import hash_password
 from src.utils.serialization import checksum
 def seed():
@@ -15,6 +17,11 @@ def seed():
             if not db.scalar(select(User).where(User.email==email)):
                 db.add(User(email=email,name=name,role=role,password=hash_password('Demo123!')))
         db.flush()
+        # 双时间客流台账：自然键 (flow_no,event_type,received_at) 幂等，不重复入账。
+        if not db.scalar(select(FlowEvent).limit(1)):
+            for row in seed_flow_events():
+                db.add(FlowEvent(**row))
+            db.flush()
         m=metadata()
         d=db.scalar(select(Dataset).where(Dataset.name==m['dataset_name']))
         if not d:
@@ -31,8 +38,24 @@ def seed():
             r=Report(name='每日业务复核简报',job_id=j.id,destination='业务复核组 · 本地收件箱',interval_seconds=86400,next_run=time.time()+86400,enabled=True)
             db.add(r);db.flush();deliver(db,r)
             db.add(Audit(actor='seed',action='demo.baseline',detail={'dataset':d.id},at=time.time()))
+        # 导览试点复盘：同步重放到完成态，便于页面直接展示两次结论与差异。
+        if not db.scalar(select(Review).where(Review.name=='导览试点复盘 · '+BUSINESS_DAY)):
+            admin=db.scalar(select(User).where(User.role=='admin'))
+            class _In:
+                pass
+            data=_In()
+            data.name='导览试点复盘 · '+BUSINESS_DAY
+            data.business_date=BUSINESS_DAY
+            data.zone='全部'
+            data.as_of_then=THEN
+            data.as_of_now=NOW
+            rv=reviews.create(db,data,admin)
+            db.flush()
+            while rv.status!='completed':
+                reviews.run_batch(db,rv)
+            db.add(Audit(actor='seed',action='demo.review',detail={'id':rv.id},at=time.time()))
         db.commit()
-        counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in [User,Dataset,Job,Report,Delivery,Audit]}
+        counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in [User,Dataset,Job,Report,Delivery,Audit,FlowEvent,Review]}
         print(json.dumps(counts,ensure_ascii=False))
         return counts
 if __name__=='__main__':seed()
